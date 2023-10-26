@@ -20,6 +20,7 @@ function parseString(str){
     return str;
 }
 
+//Return user id from url
 function trimUrl(url){
     let startPos = url.indexOf('@');
     if(startPos++ == -1){ return null; }
@@ -29,6 +30,7 @@ function trimUrl(url){
     return parseString(url.substring(startPos, endPos));
 }
 
+//Return whether the author is already in the list
 function inList(id){
     for(let i = 0; i < authors.length; ++i){
         let a = authors[i];
@@ -37,25 +39,51 @@ function inList(id){
     return false;
 }
 
+//Add an author to the file and memory
 function addAuthor(n, id){
     authors.push({name: n, userID: id});
     fs.appendFileSync(authorFile, n + ',' + id + ',' + BASE_URL + id + '\n');
 }
 
+//Properly splits up line into it's values, even when a value contains a comma
+function parseCsvLine(line){
+    if(line.length == 0){ return null; }
+    let vals = line.split(',');
+    let result = [];
+    let quoteHit = 0;
+    for(let i = 0; i < vals.length; ++i){
+        if(vals[i].startsWith('"')){
+            quoteHit = 1;
+            result.push(vals[i]);
+        }
+        else if(quoteHit){
+            if(vals[i].endsWith('"')){
+                quoteHit = 0;
+            }
+            result[result.length-1] += (',' + vals[i]);
+        }
+        else{
+            result.push(vals[i]);
+        }
+    }
+    return result;
+}
+
+//Loads authors from file
 function loadAuthors(file){
     authors = [];
-    let data = fs.readFileSync(file, {encoding: 'utf-8'});
+    let data = fs.readFileSync(file, {encoding: "utf-8"});
 
     let lines = data.split('\n');
     for(let i = 1; i < lines.length; ++i){
-        let l = lines[i];
-        if(l == ''){ return; }
-        let vals = l.split(',');
-        if(vals[0] == null || vals.at(-2) == null){ break; }
-        authors.push({name: vals[0], userID: vals.at(-2)});
+        let l = parseCsvLine(lines[i]);
+        if(l == null){ break; }
+        if(l[0] == null || l[1] == null){ break; }
+        authors.push({name: l[0], userID: l[1]});
     }
 }
 
+//Gets display name
 function getAuthor(id){
     url = BASE_URL + id;
     return fetch(url).then(async (res) => {
@@ -69,15 +97,21 @@ function getAuthor(id){
     });
 }
 
+//Adds author with checks to maintain data integrity
 async function authorAddCheck(userID){
     if(inList(userID) == false){
-        addAuthor(await getAuthor(userID), userID);
+        let dispName = await getAuthor(userID);
+        //Pages that don't exist anymore have 'Odysee' set as their title
+        //could cause probs if someone sets their name to 'Odysee'
+        if(dispName == "Odysee"){ return false; }
+        addAuthor(dispName, userID);
         console.log(authors.at(-1));
         return true;
     }
     return false;
 }
 
+//Asks user for url and tries to add to list
 function askForURL(prompt){
     rl.question(prompt, async (ans) => {
         if(ans[0] != 'q'){
@@ -107,12 +141,14 @@ function askForURL(prompt){
         }
     }
 */
-/*let lines = fs.readFileSync("authors.csv", {encoding: "utf-8"}).split('\n');
+/*
+let lines = fs.readFileSync("authors.csv", {encoding: "utf-8"}).split('\n');
 for(let i = 1; i < lines.length; ++i){
     if(lines[i] == ""){ continue; }
     let vals = lines[i].split(',');
     fs.appendFileSync("authors1.csv", lines[i] + ',' + BASE_URL + vals[1] + '\n');
-}*/
+}
+*/
 
 
 let main = () => {
