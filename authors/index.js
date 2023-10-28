@@ -4,6 +4,7 @@ const prompt = require("prompt-sync")();
 const BASE_URL = "https://odysee.com/@";
 let authorFile = "./authors.csv";
 let authors = [];
+let pause = 0; //Whether or not to block asking for input
 
 //Replaces some encoded chars
 //Encloses str in "" if it contains a ',' to conform with the CSV format
@@ -14,6 +15,19 @@ function parseString(str){
         str = '"' + str + '"';
     }
     return str;
+}
+
+function toCsvLine(name, id){
+    return `${name},${id},${BASE_URL}${id}`;
+}
+
+function getFileLines(fileName){
+    try{
+        return fs.readFileSync(fileName, {encoding: "utf-8"}).split('\n');
+    }
+    catch(err){
+        return null;
+    }  
 }
 
 //Return user id from url
@@ -47,7 +61,7 @@ function inList(id){
 //Add an author to the file and memory
 function addAuthor(n, id){
     authors.push({name: n, userID: id});
-    fs.appendFileSync(authorFile, n + ',' + id + ',' + BASE_URL + id + '\n');
+    fs.appendFileSync(authorFile, toCsvLine(n, id) + '\n');
 }
 
 //Properly splits up line into it's values, even when a value contains a comma
@@ -61,7 +75,7 @@ function parseCsvLine(line){
     //Puts values that contain a comma back together
     for(let i = 0; i < vals.length; ++i){
         if(quoteHit){
-            result[result.length-1] += (',' + vals[i]);
+            result[result.length-1] += `,${vals[i]}`;
         }
         else{ 
             result.push(vals[i]); 
@@ -80,7 +94,11 @@ function parseCsvLine(line){
 //Loads authors from file
 function loadAuthors(file){
     authors = [];
-    let lines = fs.readFileSync(file, {encoding: "utf-8"}).split('\n');
+    let lines = getFileLines(file);
+    if(lines == null){
+        console.log("Error reading file, does it exist?\n");
+        return;
+    }
     for(let i = 1; i < lines.length; ++i){
         let vals = parseCsvLine(lines[i]);
         if(vals == null || vals[0] == null || vals[1] == null){ continue; }
@@ -127,7 +145,11 @@ function authorAddCheck(userID){
 //Searches a file for urls and adds them to the list
 async function searchAndAddAuthors(fileName){
     return new Promise(async (resolve)=>{
-        let lines = fs.readFileSync(fileName, {encoding: "utf-8"}).split('\n');
+        let lines = getFileLines(fileName);
+        if(lines == null){
+            console.log("Error reading file, does it exist?\n");
+            resolve();
+        }
         for(let i = 0; i < lines.length; ++i){
             let line = lines[i];
             let index = line.indexOf(BASE_URL);
@@ -140,7 +162,13 @@ async function searchAndAddAuthors(fileName){
     });
 }
 
-let pause = 0;
+//Saves current author list to a csv file
+function saveFile(fileName){
+    fs.writeFileSync(fileName, "Display Name,User ID,URL\n");
+    for(let i = 0; i < authors.length; ++i){
+        fs.appendFileSync(fileName, toCsvLine(authors[i].name, authors[i].userID) + '\n');
+    }
+}
 
 //Asks user for url and tries to add to list
 function askForURL(prmpt){
@@ -163,6 +191,7 @@ function makeMenu(options){
 
 function promptForAddFile(input){
     if(input == null){
+        console.log("Add From File");
         promptForAddFile(prompt("Enter a filename: "));
     }
     else{
@@ -174,6 +203,7 @@ function promptForAddFile(input){
 
 function promptForLoadFile(input){
     if(input == null){
+        console.log("Load From File");
         promptForLoadFile(prompt("Enter a filename: "));
     }
     else{
@@ -183,28 +213,45 @@ function promptForLoadFile(input){
 
 function promptUserForUrl(input){
     if(input == null){
+        console.log("Add From URL");
         promptUserForUrl(askForURL("Enter a URL: "));
     }
     else{
         if(!(authorAddCheck(input))){
-            console.log("Channel already in list or doesn't exist");
+            console.log("Channel already in list or doesn't exist\n");
         }
         else{
-            console.log(authors.at(-1));
+            //console.log(authors.at(-1));
         }
+    }
+}
+
+function promptForSaveFile(input){
+    if(input == null){
+        console.log("Save To File");
+        promptForSaveFile(prompt("Enter a filename: "));
+    }
+    else{
+        pause = 1;
+        console.log(`Saving to ${input}\n`);
+        saveFile(input);
+        pause = 0;
     }
 }
 
 function mainMenu(sel){
     //console.log(sel);
+    let opts = ["Manual URL Entry", "Add From File", "Load Authors", "Save A Copy", "Quit"];
     if(sel == 1){ promptUserForUrl(); }
     else if(sel == 2){ promptForAddFile(); }
     else if(sel == 3){ promptForLoadFile(); }
-    else if(sel == 4){ return 1; }
+    else if(sel == 4){ promptForSaveFile(); }
+    else if(sel == opts.length){ return 1; }
     else{
-        let ask = makeMenu(["Manual URL Entry", "Add From File", "Load Authors", "Quit"]);
+        let ask = makeMenu(opts);
         console.log(ask);
         let input = prompt(" > ");
+        console.clear();
         return mainMenu(input);
     }
     return 0;
