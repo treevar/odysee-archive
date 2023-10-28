@@ -1,5 +1,5 @@
 const fs = require("node:fs");
-const readline = require("readline");
+const readline = require("node:readline");
 let rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
@@ -21,17 +21,26 @@ function parseString(str){
 }
 
 //Return user id from url
-function trimUrl(url){
+function urlToUserId(url){
     let startPos = url.indexOf('@');
     if(startPos++ == -1){ return null; }
-    let endPos = url.indexOf('/', startPos);
-    if(endPos == -1){ endPos = url.length; }
+    const endSymbols = "?/, ";//Used to find end of user id
+    let endPos = -1;
+    let discrimIndex = url.indexOf(':', startPos); //get index at end of user id
+    for(let i = 0; i < endSymbols.length; ++i){ //attempt to find end of url
+        let symbolIndex = url.indexOf(endSymbols[i], discrimIndex);
+        if((symbolIndex != -1 && symbolIndex < endPos) || endPos == -1){ endPos = symbolIndex; }
+    }
+    if(endPos == -1){ 
+        endPos = url.length; 
+    }
     
     return parseString(url.substring(startPos, endPos));
 }
 
 //Return whether the author is already in the list
 function inList(id){
+    if(id == null){ return false; }
     for(let i = 0; i < authors.length; ++i){
         let a = authors[i];
         if(a.userID == id){ return true; }
@@ -48,22 +57,25 @@ function addAuthor(n, id){
 //Properly splits up line into it's values, even when a value contains a comma
 function parseCsvLine(line){
     if(line.length == 0){ return null; }
+    //split line up into comma seperated values
+    //if a value contains commas it will also be split
     let vals = line.split(',');
     let result = [];
     let quoteHit = 0;
+    //Puts values that contain a comma back together
     for(let i = 0; i < vals.length; ++i){
-        if(vals[i].startsWith('"')){
-            quoteHit = 1;
-            result.push(vals[i]);
-        }
-        else if(quoteHit){
-            if(vals[i].endsWith('"')){
-                quoteHit = 0;
-            }
+        if(quoteHit){
             result[result.length-1] += (',' + vals[i]);
         }
-        else{
-            result.push(vals[i]);
+        else{ 
+            result.push(vals[i]); 
+        }
+
+        if(vals[i].startsWith('"')){
+            quoteHit = 1;
+        }
+        if(vals[i].endsWith('"')){
+            quoteHit = 0;
         }
     }
     return result;
@@ -72,19 +84,17 @@ function parseCsvLine(line){
 //Loads authors from file
 function loadAuthors(file){
     authors = [];
-    let data = fs.readFileSync(file, {encoding: "utf-8"});
-
-    let lines = data.split('\n');
+    let lines = fs.readFileSync(file, {encoding: "utf-8"}).split('\n');
     for(let i = 1; i < lines.length; ++i){
-        let l = parseCsvLine(lines[i]);
-        if(l == null){ break; }
-        if(l[0] == null || l[1] == null){ break; }
-        authors.push({name: l[0], userID: l[1]});
+        let vals = parseCsvLine(lines[i]);
+        if(vals == null || vals[0] == null || vals[1] == null){ continue; }
+        authors.push({name: vals[0], userID: vals[1]});
     }
 }
 
 //Gets display name
-function getAuthor(id){
+function getAuthorName(id){
+    if(id == null){ return null; }
     url = BASE_URL + id;
     return fetch(url).then(async (res) => {
         if(res.status != 200){ return null; }
@@ -100,23 +110,38 @@ function getAuthor(id){
 //Adds author with checks to maintain data integrity
 async function authorAddCheck(userID){
     if(inList(userID) == false){
-        let dispName = await getAuthor(userID);
+        let dispName = await getAuthorName(userID);
         //Pages that don't exist anymore have 'Odysee' set as their title
         //could cause probs if someone sets their name to 'Odysee'
-        if(dispName == "Odysee"){ return false; }
-        addAuthor(dispName, userID);
-        console.log(authors.at(-1));
-        return true;
+        if(dispName == null || dispName == "Odysee"){ return false; }
+        if(inList(userID) == false){//Check again because it could have been added in the time we waited for the username
+            addAuthor(dispName, userID); 
+            console.log(authors.at(-1));
+            return true;
+        }
     }
     return false;
 }
 
+//Searches a file for urls and adds them to the list
+function searchAndAddAuthors(fileName){
+    let lines = fs.readFileSync(fileName, {encoding: "utf-8"}).split('\n');
+    for(let i = 0; i < lines.length; ++i){
+        let line = lines[i];
+        let index = line.indexOf(BASE_URL);
+        while(index != -1){
+            authorAddCheck(urlToUserId(line.substring(index)));
+            index = line.indexOf(BASE_URL, index + BASE_URL.length);
+        }
+    }
+}
+
 //Asks user for url and tries to add to list
 function askForURL(prompt){
-    rl.question(prompt, async (ans) => {
+    rl.question(prompt, (ans) => {
         if(ans[0] != 'q'){
             if(ans.startsWith(BASE_URL)){
-                let userID = trimUrl(ans);
+                let userID = urlToUserId(ans);
                 if(!authorAddCheck(userID)){
                     rl.write("Already in list\n");
                 }
@@ -128,32 +153,10 @@ function askForURL(prompt){
     });
 }
 
-/*
-    let lines = fs.readFileSync("list.txt", {encoding: "utf-8"}).split('\n');
-    for(let i = 0; i < lines.length; ++i){
-        let line = lines[i];
-        if(line.startsWith(BASE_URL)){
-            let userID = trimUrl(line);
-            if(userID == null){ continue; }
-            if(!authorAddCheck(userID)){
-                rl.write("Already in list\n");
-            }
-        }
-    }
-*/
-/*
-let lines = fs.readFileSync("authors.csv", {encoding: "utf-8"}).split('\n');
-for(let i = 1; i < lines.length; ++i){
-    if(lines[i] == ""){ continue; }
-    let vals = lines[i].split(',');
-    fs.appendFileSync("authors1.csv", lines[i] + ',' + BASE_URL + vals[1] + '\n');
-}
-*/
-
-
 let main = () => {
     let prompt = "Enter URL -> ";
     loadAuthors(authorFile);
+    //searchAndAddAuthors("list.txt");
     askForURL(prompt);
 }
 
