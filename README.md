@@ -10,6 +10,9 @@ I have made a [file](authors/authors.csv) of a large majority of FOSS CAD relate
 - Add `Notable Creations` field that contains custom text, that's used for finding popular posts
 - Continue to add channels
 
+### Running:
+There is a [script](authors/index.js) used for adding channels to the list. You must run `npm install` in the directory with the script before you can use it.
+
 ### Contributing:
 
 **Know of a channel that isn't on the list?** <br>
