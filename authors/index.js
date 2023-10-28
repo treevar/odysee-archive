@@ -1,9 +1,5 @@
 const fs = require("node:fs");
-const readline = require("node:readline");
-let rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-});
+const prompt = require("prompt-sync")();
 
 const BASE_URL = "https://odysee.com/@";
 let authorFile = "./authors.csv";
@@ -96,68 +92,145 @@ function loadAuthors(file){
 function getAuthorName(id){
     if(id == null){ return null; }
     url = BASE_URL + id;
-    return fetch(url).then(async (res) => {
+    return fetch(url).then((res) => {
         if(res.status != 200){ return null; }
-        let text = await res.text();
-        let startPos = text.indexOf("<title>");
-        if(startPos == -1){ return null; }
-        startPos += 7;
-        let endPos = text.indexOf("</title>", startPos);
-        return parseString(text.substring(startPos, endPos));
+        let startPos, endPos;
+        return res.text().then((txt) => {
+            startPos = txt.indexOf("<title>");
+            if(startPos == -1){ return null; }
+            startPos += 7;
+            endPos = txt.indexOf("</title>", startPos);
+            return parseString(txt.substring(startPos, endPos));
+        });
+        
     });
 }
 
 //Adds author with checks to maintain data integrity
-async function authorAddCheck(userID){
+function authorAddCheck(userID){
     if(inList(userID) == false){
-        let dispName = await getAuthorName(userID);
-        //Pages that don't exist anymore have 'Odysee' set as their title
-        //could cause probs if someone sets their name to 'Odysee'
-        if(dispName == null || dispName == "Odysee"){ return false; }
-        if(inList(userID) == false){//Check again because it could have been added in the time we waited for the username
-            addAuthor(dispName, userID); 
-            console.log(authors.at(-1));
-            return true;
-        }
+        return getAuthorName(userID).then((dispName) => {
+            //Pages that don't exist anymore have 'Odysee' set as their title
+            //could cause probs if someone sets their name to 'Odysee'
+            if(dispName == null || dispName == "Odysee"){ return false; }
+            if(inList(userID) == false){//Check again because it could have been added in the time we waited for the username
+                addAuthor(dispName, userID); 
+                console.log(authors.at(-1));
+                return true;
+            }
+        });
+       
     }
     return false;
 }
 
 //Searches a file for urls and adds them to the list
-function searchAndAddAuthors(fileName){
-    let lines = fs.readFileSync(fileName, {encoding: "utf-8"}).split('\n');
-    for(let i = 0; i < lines.length; ++i){
-        let line = lines[i];
-        let index = line.indexOf(BASE_URL);
-        while(index != -1){
-            authorAddCheck(urlToUserId(line.substring(index)));
-            index = line.indexOf(BASE_URL, index + BASE_URL.length);
+async function searchAndAddAuthors(fileName){
+    return new Promise(async (resolve)=>{
+        let lines = fs.readFileSync(fileName, {encoding: "utf-8"}).split('\n');
+        for(let i = 0; i < lines.length; ++i){
+            let line = lines[i];
+            let index = line.indexOf(BASE_URL);
+            while(index != -1){
+                await authorAddCheck(urlToUserId(line.substring(index)));
+                index = line.indexOf(BASE_URL, index + BASE_URL.length);
+            }
+        }
+        resolve();
+    });
+}
+
+let pause = 0;
+
+//Asks user for url and tries to add to list
+function askForURL(prmpt){
+    let ans = prompt(prmpt);
+    if(ans == null){ return null; }
+    if(ans.startsWith(BASE_URL)){
+        let userID = urlToUserId(ans);
+        return userID;
+    }
+    return null;
+}
+
+function makeMenu(options){
+    let result = "Make a selection:\n"
+    for(let i = 0; i < options.length; ++i){
+        result += (`\t${i+1}. ${options[i]}\n`);
+    }
+    return result;
+}
+
+function promptForAddFile(input){
+    if(input == null){
+        promptForAddFile(prompt("Enter a filename: "));
+    }
+    else{
+        pause=1;
+        console.log("Processing File...\n");
+        searchAndAddAuthors(input).then(()=>{pause=0;});
+    }
+}
+
+function promptForLoadFile(input){
+    if(input == null){
+        promptForLoadFile(prompt("Enter a filename: "));
+    }
+    else{
+        loadAuthors(input);
+    }
+}
+
+function promptUserForUrl(input){
+    if(input == null){
+        promptUserForUrl(askForURL("Enter a URL: "));
+    }
+    else{
+        if(!(authorAddCheck(input))){
+            console.log("Channel already in list or doesn't exist");
+        }
+        else{
+            console.log(authors.at(-1));
         }
     }
 }
 
-//Asks user for url and tries to add to list
-function askForURL(prompt){
-    rl.question(prompt, (ans) => {
-        if(ans[0] != 'q'){
-            if(ans.startsWith(BASE_URL)){
-                let userID = urlToUserId(ans);
-                if(!authorAddCheck(userID)){
-                    rl.write("Already in list\n");
-                }
-            }
-            askForURL(prompt);
-            return null;
-        }
-        return null;
-    });
+function mainMenu(sel){
+    //console.log(sel);
+    if(sel == 1){ promptUserForUrl(); }
+    else if(sel == 2){ promptForAddFile(); }
+    else if(sel == 3){ promptForLoadFile(); }
+    else if(sel == 4){ return 1; }
+    else{
+        let ask = makeMenu(["Manual URL Entry", "Add From File", "Load Authors", "Quit"]);
+        console.log(ask);
+        let input = prompt(" > ");
+        return mainMenu(input);
+    }
+    return 0;
+}
+
+let mainIntervalId;
+
+function mainLoop(){
+    if(!pause){
+        if(mainMenu() == 1){ clearInterval(mainIntervalId); }
+    }
 }
 
 let main = () => {
-    let prompt = "Enter URL -> ";
     loadAuthors(authorFile);
-    //searchAndAddAuthors("list.txt");
-    askForURL(prompt);
+    mainIntervalId = setInterval(mainLoop, 100);
+
+    return;
+    let input = askForURL(prompt);
+    while(input != 'q'){
+        if(!authorAddCheck(input)){
+            rl.write("Already in list\n");
+        }
+        input = askForURL(prompt);
+    }
+    
 }
 
 main();
